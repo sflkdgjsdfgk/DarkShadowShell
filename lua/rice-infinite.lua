@@ -113,6 +113,23 @@ function RI.zoom(dir)
     RI.zoom_to(dir > 0 and RI.z * f or RI.z / f)
 end
 
+function RI.zoom_factor(factor, live, cx, cy)
+    if not here() or not factor or factor <= 0 then return end
+    local nz = math.max(RI.cfg.min, math.min(RI.cfg.max, RI.z * factor))
+    if math.abs(nz - RI.z) < 0.0005 then return end
+    local list = wins()
+    for _, w in ipairs(list) do canvas(w) end
+    if not cx then
+        local c = hl.get_cursor_pos()
+        cx, cy = c.x, c.y
+    end
+    local wx, wy = (cx - RI.ox) / RI.z, (cy - RI.oy) / RI.z
+    RI.z = nz
+    RI.ox, RI.oy = cx - wx * nz, cy - wy * nz
+    for _, w in ipairs(list) do place(w, RI.world[w.address], true) end
+    if not live then save() end
+end
+
 function RI.pan(dx, dy, live)
     if not here() then return end
     local list = wins()
@@ -316,6 +333,9 @@ bind_keys = function()
         "SUPER + SHIFT + mouse_down", "SUPER + SHIFT + mouse_up",
         "SUPER + SHIFT + mouse_left", "SUPER + SHIFT + mouse_right",
         k(hold, "left"), k(hold, "right"), k(hold, "up"), k(hold, "down"), k(hold, "0"),
+        k(hold, "mouse:272"), k(hold, "mouse:273"), k(hold, "mouse:274"),
+        k(hold, "mouse_down"), k(hold, "mouse_up"),
+        k(hold, "mouse_left"), k(hold, "mouse_right"),
         k(go, "left"), k(go, "right"), k(go, "up"), k(go, "down")
     }
     pcall(hl.unbind, "SUPER + mouse_down")
@@ -337,14 +357,21 @@ bind_keys = function()
     pcall(hl.bind, k(hold, "up"), function() RI.pan(0, p()) end, { repeating = true })
     pcall(hl.bind, k(hold, "down"), function() RI.pan(0, -p()) end, { repeating = true })
     pcall(hl.bind, k(hold, "0"), function() RI.zoom_to(1.0) end)
+    pcall(hl.bind, k(hold, "mouse:272"), function() end)
+    pcall(hl.bind, k(hold, "mouse:273"), function() end)
+    pcall(hl.bind, k(hold, "mouse:274"), function() end)
+    pcall(hl.bind, k(hold, "mouse_down"), function() RI.pan(0, -p()) end)
+    pcall(hl.bind, k(hold, "mouse_up"), function() RI.pan(0, p()) end)
+    pcall(hl.bind, k(hold, "mouse_left"), function() RI.pan(p(), 0) end)
+    pcall(hl.bind, k(hold, "mouse_right"), function() RI.pan(-p(), 0) end)
     pcall(hl.bind, k(go, "left"), function() RI.go("left") end)
     pcall(hl.bind, k(go, "right"), function() RI.go("right") end)
     pcall(hl.bind, k(go, "up"), function() RI.go("up") end)
     pcall(hl.bind, k(go, "down"), function() RI.go("down") end)
-    pcall(hl.gesture, { fingers = 2, direction = "pinchout", action = function() RI.zoom(1) end })
-    pcall(hl.gesture, { fingers = 2, direction = "pinchin", action = function() RI.zoom(-1) end })
-    pcall(hl.gesture, { fingers = 3, direction = "pinchout", action = function() RI.zoom(1) end })
-    pcall(hl.gesture, { fingers = 3, direction = "pinchin", action = function() RI.zoom(-1) end })
+    pcall(hl.gesture, { fingers = 2, direction = "pinch", action = function() end })
+    pcall(hl.gesture, { fingers = 2, direction = "pinchin", action = function() end })
+    pcall(hl.gesture, { fingers = 2, direction = "pinchout", action = function() end })
+    pcall(hl.gesture, { fingers = 3, direction = "horizontal", action = "unset" })
     pcall(hl.gesture, { fingers = 3, direction = "left", mods = "SUPER", action = function() RI.go("left") end })
     pcall(hl.gesture, { fingers = 3, direction = "right", mods = "SUPER", action = function() RI.go("right") end })
     pcall(hl.gesture, { fingers = 3, direction = "up", mods = "SUPER", action = function() RI.go("up") end })
@@ -359,10 +386,11 @@ unbind_keys = function()
     pcall(hl.unbind, "SUPER + mouse_right")
     pcall(hl.unbind, "SUPER + SHIFT + mouse_left")
     pcall(hl.unbind, "SUPER + SHIFT + mouse_right")
-    pcall(hl.gesture, { fingers = 2, direction = "pinchout", action = "unset" })
+    pcall(hl.gesture, { fingers = 2, direction = "pinch", action = "unset" })
     pcall(hl.gesture, { fingers = 2, direction = "pinchin", action = "unset" })
-    pcall(hl.gesture, { fingers = 3, direction = "pinchout", action = "unset" })
-    pcall(hl.gesture, { fingers = 3, direction = "pinchin", action = "unset" })
+    pcall(hl.gesture, { fingers = 2, direction = "pinchout", action = "unset" })
+    pcall(hl.gesture, { fingers = 3, direction = "horizontal", action = "unset" })
+    pcall(hl.gesture, { fingers = 3, direction = "horizontal", action = "workspace" })
     pcall(hl.gesture, { fingers = 3, direction = "left", mods = "SUPER", action = "unset" })
     pcall(hl.gesture, { fingers = 3, direction = "right", mods = "SUPER", action = "unset" })
     pcall(hl.gesture, { fingers = 3, direction = "up", mods = "SUPER", action = "unset" })

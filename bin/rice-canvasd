@@ -18,6 +18,29 @@ EV = struct.Struct("llHHi")
 EV_SYN, EV_KEY, EV_REL, EV_ABS = 0, 1, 2, 3
 REL_X, REL_Y = 0, 1
 ABS_X, ABS_Y = 0, 1
+ABS_MT_SLOT = 47
+ABS_MT_POSITION_X = 53
+ABS_MT_POSITION_Y = 54
+ABS_MT_TRACKING_ID = 57
+INF_STATE = os.path.expanduser("~/.config/rice/infinite.state")
+_inf_st = [0, False]
+
+
+def is_infinite_on():
+    if NIRI:
+        return bool(nstate().get("on"))
+    try:
+        mt = os.path.getmtime(INF_STATE)
+        if mt != _inf_st[0]:
+            _inf_st[0] = mt
+            _inf_st[1] = False
+            for line in open(INF_STATE):
+                if line.startswith("on="):
+                    _inf_st[1] = (line.strip() == "on=1")
+                    break
+    except OSError:
+        _inf_st[1] = False
+    return _inf_st[1]
 META = (125, 126)
 ALT = (56, 100)
 CTRL = (29, 97)
@@ -374,8 +397,12 @@ def main():
 
     fds = {}
     pad_pos = {}
+    pad_mt = {}
     held = set()
     acc = [0.0, 0.0]
+    zoom_acc = 1.0
+    zoom_changed = False
+    zoom_ended = False
     moved_rel = False
     rel_hold = False
     hold_t = 0
@@ -383,6 +410,7 @@ def main():
     last_scan = 0
     last_tick = 0
     last_send = 0
+    last_zoom = 0
     was_on = None
     last_cur = None
     c = conf()
@@ -441,11 +469,13 @@ def main():
                 os.close(fd)
                 fds.pop(fd, None)
                 pad_pos.pop(fd, None)
+                pad_mt.pop(fd, None)
                 continue
             if not data:
                 os.close(fd)
                 fds.pop(fd, None)
                 pad_pos.pop(fd, None)
+                pad_mt.pop(fd, None)
                 continue
             for i in range(0, len(data) - EV.size + 1, EV.size):
                 _, _, t, code, val = EV.unpack_from(data, i)
@@ -460,18 +490,47 @@ def main():
                     acc[code] += val
                     moved_rel = True
                     rel_hold = True
-                elif t == EV_ABS and kind == "p" and code in (ABS_X, ABS_Y):
-                    cur = pad_pos.get(fd)
-                    if cur is None:
-                        cur = [None, None]
-                        pad_pos[fd] = cur
-                    if cur[code] is not None and mode:
-                        delta = val - cur[code]
-                        if abs(delta) < 800:
-                            acc[code] += delta * 0.4
-                            moved_rel = True
-                            rel_hold = True
-                    cur[code] = val
+                elif t == EV_ABS and kind == "p":
+                    mt = pad_mt.setdefault(fd, {"slot": 0, "slots": {}, "dist": None})
+                    if code == ABS_MT_SLOT:
+                        mt["slot"] = val
+                    elif code == ABS_MT_TRACKING_ID:
+                        slot = mt["slots"].setdefault(mt["slot"], {})
+                        slot["id"] = val
+                        if val == -1:
+                            slot.pop("x", None)
+                            slot.pop("y", None)
+                    elif code == ABS_MT_POSITION_X:
+                        mt["slots"].setdefault(mt["slot"], {})["x"] = val
+                    elif code == ABS_MT_POSITION_Y:
+                        mt["slots"].setdefault(mt["slot"], {})["y"] = val
+                    elif code in (ABS_X, ABS_Y):
+                        cur = pad_pos.get(fd)
+                        if cur is None:
+                            cur = [None, None]
+                            pad_pos[fd] = cur
+                        if cur[code] is not None and mode:
+                            delta = val - cur[code]
+                            if abs(delta) < 800:
+                                acc[code] += delta * 0.4
+                                moved_rel = True
+                                rel_hold = True
+                        cur[code] = val
+            if kind == "p" and fd in pad_mt:
+                mt = pad_mt[fd]
+                active = [s for s in mt["slots"].values() if s.get("id", -1) >= 0 and s.get("x") is not None and s.get("y") is not None]
+                if len(active) == 2:
+                    d = ((active[0]["x"] - active[1]["x"]) ** 2 + (active[0]["y"] - active[1]["y"]) ** 2) ** 0.5
+                    if mt["dist"] is not None and mt["dist"] > 20:
+                        ratio = d / mt["dist"]
+                        if 0.5 < ratio < 2.0 and abs(d - mt["dist"]) > 2:
+                            zoom_acc *= ratio
+                            zoom_changed = True
+                    mt["dist"] = d
+                else:
+                    if mt["dist"] is not None:
+                        mt["dist"] = None
+                        zoom_ended = True
 
         down = {name for name, codes in MODKEYS.items() if any(k in held for k in codes)}
         need = mods_of(c.get("mod_hold", "SUPER + ALT")) or {"SUPER", "ALT"}
@@ -480,6 +539,20 @@ def main():
             mode = "canvas"
         elif "SUPER" in down and BTN_LEFT in held and not (down & {"ALT", "CTRL"}) and int(c.get("push", 0)) == 1 and not NIRI:
             mode = "push"
+
+        inf_on = is_infinite_on()
+        if zoom_changed and not NIRI and (inf_on or "CTRL" in down or mode == "canvas"):
+            if abs(zoom_acc - 1.0) >= 0.003 and time.time() - last_zoom > 0.016:
+                zf = max(0.7, min(1.4, zoom_acc))
+                hypr_eval("if RiceInfinite then RiceInfinite.zoom_factor(%.5f, true) end" % zf)
+                zoom_acc = 1.0
+                zoom_changed = False
+                last_zoom = time.time()
+        if zoom_ended and not NIRI:
+            if inf_on or mode == "canvas":
+                hypr_eval("if RiceInfinite then RiceInfinite.save() end")
+            zoom_ended = False
+            zoom_acc = 1.0
 
         if mode != was_on:
             if was_on == "canvas" and not NIRI:
@@ -491,6 +564,8 @@ def main():
             last_cur = cursor() if mode == "canvas" and not NIRI else None
             for pfd in pad_pos:
                 pad_pos[pfd] = [None, None]
+            for pfd in pad_mt:
+                pad_mt[pfd]["dist"] = None
             was_on = mode
         if not mode:
             acc = [0.0, 0.0]

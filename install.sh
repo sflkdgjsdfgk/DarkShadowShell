@@ -792,6 +792,7 @@ wire_hypr() {
   if [ -f "$HOME/.config/hypr/rice-gpu.lua" ] && ! grep -q 'rice-gpu' "$lua"; then printf '\npcall(require, "rice-gpu")\n' >>"$lua"; fi
   # Settings > Desktop > Infinite Desktop (SUPER + F)
   if [ -f "$HOME/.config/hypr/rice-infinite.lua" ] && ! grep -q 'rice-infinite' "$lua"; then printf '\npcall(require, "rice-infinite")\n' >>"$lua"; fi
+  if [ -f "$HOME/.config/hypr/rice-gestures.lua" ] && ! grep -q 'rice-gestures' "$lua"; then printf '\npcall(require, "rice-gestures")\n' >>"$lua"; fi
   # your own keys for the shell's actions (Settings > System > Keybinds): loaded after everything else
   if [ -f "$HOME/.config/hypr/rice-keymap.lua" ] && ! grep -q 'rice-keymap' "$lua"; then printf '\npcall(require, "rice-keymap")\n' >>"$lua"; fi
   for m in rice-settings rice-desktop rice-keys; do
